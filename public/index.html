@@ -225,35 +225,87 @@
     .rating-btn.selected { border-color: #667eea; background: #667eea; color: #fff; }
     .rating-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
-    /* 打分滑块（备选） */
-    .slider-container {
-      margin: 20px 0;
+    /* 多人评分列表 */
+    .rater-list { margin: 12px 0; }
+    .rater-item {
+      background: #f7fafc;
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+    .rater-item .rater-name {
+      font-weight: 700;
+      font-size: 15px;
+      margin-bottom: 4px;
+    }
+    .rater-item .rater-slider-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .rater-item .rater-value {
+      font-size: 24px;
+      font-weight: 800;
+      color: #667eea;
+      min-width: 36px;
       text-align: center;
     }
-    .slider-value {
-      font-size: 56px;
-      font-weight: 900;
-      color: #667eea;
-    }
-    input[type="range"] {
-      width: 100%;
-      height: 8px;
+    .rater-item input[type="range"] {
+      flex: 1;
+      height: 6px;
       -webkit-appearance: none;
       appearance: none;
       background: #e2e8f0;
-      border-radius: 4px;
+      border-radius: 3px;
       outline: none;
       padding: 0;
       border: none;
     }
-    input[type="range"]::-webkit-slider-thumb {
+    .rater-item input[type="range"]::-webkit-slider-thumb {
       -webkit-appearance: none;
-      width: 32px;
-      height: 32px;
+      width: 24px;
+      height: 24px;
       border-radius: 50%;
       background: #667eea;
       cursor: pointer;
-      box-shadow: 0 2px 8px rgba(102,126,234,0.4);
+      box-shadow: 0 2px 6px rgba(102,126,234,0.3);
+    }
+
+    /* 结果中的评分详情 */
+    .result-detail-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      border-radius: 8px;
+      margin-bottom: 6px;
+      background: #f7fafc;
+    }
+    .result-detail-row.is-winner {
+      background: #ffd700;
+      font-weight: 700;
+    }
+    .result-detail-row .rd-name { font-weight: 600; }
+    .result-detail-row .rd-rating { color: #667eea; font-weight: 700; }
+    .result-detail-row .rd-diff { color: #718096; font-size: 13px; }
+    .result-detail-row .rd-winner-badge {
+      background: #e53e3e;
+      color: #fff;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .winner-announce {
+      text-align: center;
+      font-size: 20px;
+      font-weight: 800;
+      color: #e53e3e;
+      margin: 12px 0;
+      padding: 12px;
+      background: #fff5f5;
+      border-radius: 12px;
     }
 
     /* 结果揭晓 */
@@ -455,34 +507,25 @@
           </div>
         </div>
 
-        <!-- 描述中（抽牌人准备打分） -->
+        <!-- 描述中（抽牌人准备给每人打分） -->
         <div id="describeSection" style="display:none;">
           <div class="card-warning">🎯 别人正在描述事件，仔细听！</div>
           <div class="card-display">
             <div class="card-value hidden">❓</div>
             <div class="card-label">你的牌是隐藏的</div>
           </div>
-          <div style="text-align:center;margin:12px 0;">
-            <div style="font-size:14px;color:#718096;margin-bottom:8px;">你的接受程度是多少？（0-10）</div>
+          <div style="text-align:center;margin:8px 0;">
+            <div style="font-size:14px;color:#718096;">对每个人的描述分别打分（0＝完全不能忍，10＝完全可以）</div>
           </div>
-          <!-- 滑块打分 -->
-          <div class="slider-container">
-            <div class="slider-value" id="sliderDisplay">5</div>
-            <input type="range" id="ratingSlider" min="0" max="10" value="5" step="1"
-                   oninput="updateSlider(this.value)">
-            <div style="display:flex;justify-content:space-between;font-size:12px;color:#a0aec0;padding:0 4px;">
-              <span>完全不能忍 0</span>
-              <span>完全可以 10</span>
-            </div>
-          </div>
-          <button class="btn btn-primary" onclick="submitRating()">✅ 提交打分</button>
+          <div class="rater-list" id="multiRatingList"></div>
+          <button class="btn btn-primary" onclick="submitMultiRatings()">✅ 提交所有打分</button>
         </div>
 
         <!-- 等待其他人打分（非抽牌人） -->
         <div id="waitRatingSection" style="display:none;">
           <div class="waiting-msg">
             <span class="emoji">🤔</span>
-            <span id="waitRatingText">等待抽牌人打分...</span>
+            <span id="waitRatingText">等待抽牌人给所有人打分...</span>
           </div>
         </div>
 
@@ -490,22 +533,13 @@
         <div id="resultSection" style="display:none;">
           <div class="result-display">
             <h2 style="margin-bottom:8px;">🎉 揭晓！</h2>
-            <div class="result-grid">
-              <div class="result-item">
-                <div class="label">牌面</div>
-                <div class="value" id="resultCard">?</div>
-              </div>
-              <div class="result-item">
-                <div class="label">你的打分</div>
-                <div class="value" id="resultRating">?</div>
-              </div>
-              <div class="result-item">
-                <div class="label">差值</div>
-                <div class="value" id="resultDiff">?</div>
-              </div>
+            <div style="text-align:center;margin-bottom:12px;">
+              <div style="font-size:13px;color:#718096;">牌面数字</div>
+              <div style="font-size:56px;font-weight:900;color:#667eea;" id="resultCard">?</div>
             </div>
-            <div class="result-score" id="resultScore">+0</div>
-            <div style="font-size:14px;color:#718096;" id="resultDrawer">由 XXX 抽牌</div>
+            <div style="font-size:14px;color:#718096;margin-bottom:8px;" id="resultDrawer">由 XXX 抽牌</div>
+            <div id="resultDetails"></div>
+            <div class="winner-announce" id="winnerAnnounce" style="display:none;"></div>
           </div>
           <button class="btn btn-success" id="btnNextRound" onclick="nextRound()" style="display:none;">
             ▶ 下一轮

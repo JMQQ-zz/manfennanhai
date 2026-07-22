@@ -33,10 +33,10 @@ io.on('connection', (socket) => {
     const room = {
       code,
       players: [],
-      state: 'lobby',       // lobby | playing | round_end | game_over
+      state: 'lobby',             // lobby | playing | describing | round_end | game_over
       currentDrawer: null,
       cardValue: null,
-      rating: null,
+      ratings: [],                 // [{playerId, rating}]
       round: 0,
       maxRounds: 10,
       turnIndex: -1,
@@ -90,7 +90,7 @@ io.on('connection', (socket) => {
     console.log(`[房间] ${playerName}(${socket.id}) 加入了 ${code}`);
   });
 
-  // ------ 更新玩家名字（房主设置）------
+  // ------ 更新玩家名字 ------
   socket.on('update_name', ({ playerId, name }) => {
     const room = rooms[socket.roomCode];
     if (!room) return;
@@ -111,24 +111,21 @@ io.on('connection', (socket) => {
       return socket.emit('error_msg', { message: '只有房主可以开始游戏' });
     }
 
-    // 检查名字
     const unnamed = room.players.filter(p => !p.name.trim());
     if (unnamed.length > 0) {
       return socket.emit('error_msg', { message: '请所有玩家先设置名字' });
     }
-    if (room.players.length < 2) {
-      return socket.emit('error_msg', { message: '至少需要2名玩家' });
+    if (room.players.length < 3) {
+      return socket.emit('error_msg', { message: '至少需要3名玩家' });
     }
 
     room.state = 'playing';
     room.round = 0;
     room.turnIndex = -1;
-    // 重置分数
     room.players.forEach(p => p.score = 0);
 
     nextTurn(room);
     io.to(socket.roomCode).emit('game_started', { players: room.players });
-    // 发送第一轮信息给所有客户端
     io.to(socket.roomCode).emit('next_turn', {
       currentDrawer: room.currentDrawer,
       round: room.round,
@@ -144,9 +141,8 @@ io.on('connection', (socket) => {
     if (room.state !== 'playing') return;
     if (room.currentDrawer !== socket.id) return;
 
-    // 生成牌
     room.cardValue = generateCard();
-    room.rating = null;
+    room.ratings = [];
 
     // 通知所有人：有人抽牌了（不包含牌值）
     io.to(socket.roomCode).emit('card_drawn', { drawerId: socket.id });
@@ -162,36 +158,68 @@ io.on('connection', (socket) => {
     console.log(`[抽牌] ${room.code} 抽到 ${room.cardValue}`);
   });
 
-  // ------ 提交打分 ------
-  socket.on('submit_rating', ({ rating }) => {
+  // ------ 提交多人打分 ------
+  socket.on('submit_ratings', ({ ratings }) => {
     const room = rooms[socket.roomCode];
     if (!room) return;
     if (room.state !== 'describing') return;
     if (room.currentDrawer !== socket.id) return;
 
-    const r = parseInt(rating);
-    if (isNaN(r) || r < 0 || r > 10) return;
+    if (!Array.isArray(ratings) || ratings.length === 0) return;
 
-    room.rating = r;
-    const diff = Math.abs(room.cardValue - r);
-    const score = 10 - diff;
+    // 验证并存储
+    const validRatings = [];
+    for (const r of ratings) {
+      const rating = parseInt(r.rating);
+      if (isNaN(rating) || rating < 0 || rating > 10) continue;
+      // 确保是有效的非抽牌玩家
+      const player = room.players.find(p => p.id === r.playerId);
+      if (!player || player.id === socket.id) continue;
+      validRatings.push({ playerId: r.playerId, rating });
+    }
 
-    // 加分
-    const drawer = room.players.find(p => p.id === socket.id);
-    if (drawer) drawer.score += score;
+    if (validRatings.length === 0) return;
+
+    room.ratings = validRatings;
+
+    // 计算每个描述者的得分：10 - |牌面 - 评分|
+    const results = validRatings.map(r => {
+      const diff = Math.abs(room.cardValue - r.rating);
+      return {
+        playerId: r.playerId,
+        rating: r.rating,
+        diff,
+        score: 10 - diff,
+      };
+    });
+
+    // 找出最接近的（最小差值）
+    const minDiff = Math.min(...results.map(r => r.diff));
+    const winners = results.filter(r => r.diff === minDiff);
+
+    // 赢家加分
+    const winnerNames = [];
+    winners.forEach(w => {
+      const p = room.players.find(pl => pl.id === w.playerId);
+      if (p) {
+        p.score += 10;  // 赢家加10分
+        winnerNames.push(p.name);
+      }
+    });
 
     room.state = 'round_end';
 
-    // 揭晓：所有人都看到结果
+    // 揭晓
     io.to(socket.roomCode).emit('round_result', {
       drawerId: socket.id,
-      drawerName: drawer ? drawer.name : '未知',
+      drawerName: room.players.find(p => p.id === socket.id)?.name || '未知',
       cardValue: room.cardValue,
-      rating: r,
-      score,
+      results,
+      winners: winners.map(w => w.playerId),
+      winnerNames,
       players: room.players,
     });
-    console.log(`[打分] ${room.code} 牌=${room.cardValue} 打分=${r} 得分=${score}`);
+    console.log(`[结果] ${room.code} 牌=${room.cardValue} 赢家=${winnerNames.join(',')}`);
   });
 
   // ------ 下一回合 ------
@@ -205,7 +233,6 @@ io.on('connection', (socket) => {
       return socket.emit('error_msg', { message: '只有房主可以进入下一轮' });
     }
 
-    // 检查是否所有轮次完成
     if (room.round >= room.maxRounds) {
       room.state = 'game_over';
       io.to(socket.roomCode).emit('game_over', { players: room.players });
@@ -257,7 +284,6 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // 房主离开了，转让房主
     if (wasHost && room.players.length > 0) {
       room.players[0].isHost = true;
     }
@@ -273,7 +299,7 @@ function nextTurn(room) {
   room.currentDrawer = room.players[room.turnIndex].id;
   room.round++;
   room.cardValue = null;
-  room.rating = null;
+  room.ratings = [];
   room.state = 'playing';
 }
 

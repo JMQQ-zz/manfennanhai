@@ -1,12 +1,15 @@
 // ===== 满分男孩 - 客户端逻辑 =====
 
-// 连接 Socket.IO（自动连接当前服务器）
 const socket = io();
 
 // ===== 状态 =====
 let myPlayerId = null;
 let myRoomCode = null;
 let isDrawer = false;
+
+// 多人评分数据
+let _multiRatings = {};   // { playerId: ratingValue }
+let _describers = [];     // 当前轮需要评分的玩家列表
 
 // ===== 页面切换 =====
 function showPage(pageId) {
@@ -24,13 +27,11 @@ function showToast(msg, duration = 3000) {
   el._hideTimer = setTimeout(() => el.classList.remove('show'), duration);
 }
 
-// ===== 生成头像文字 =====
 function avatarText(name) {
   if (!name) return '?';
   return name.charAt(0).toUpperCase();
 }
 
-// ===== 颜色生成 =====
 const AVATAR_COLORS = [
   '#667eea', '#48bb78', '#ed8936', '#f56565',
   '#9f7aea', '#38b2ac', '#d53f8c', '#ecc94b',
@@ -62,7 +63,6 @@ socket.on('room_created', (data) => {
   myRoomCode = data.roomCode;
   document.getElementById('roomCodeDisplay').textContent = data.roomCode;
   showPage('page-lobby');
-  // 弹出名字设置
   setTimeout(() => {
     const name = prompt('请输入你的名字（房主）：');
     if (name && name.trim()) {
@@ -96,16 +96,15 @@ socket.on('game_started', (data) => {
   renderScoreboard(data.players);
   document.getElementById('roundInfo').textContent = '第 1/10 轮';
   resetGameArea();
-  // 首轮抽牌人信息由紧随的 next_turn 事件提供
 });
 
-// 有人抽牌了
+// 有人抽牌了 → 显示多人评分UI
 socket.on('card_drawn', (data) => {
-  // 抽牌人：显示描述区
   if (data.drawerId === myPlayerId) {
+    // 我是抽牌人 → 构建多人评分列表
+    buildMultiRatingUI(data.players);
     showSection('describeSection');
   } else {
-    // 非抽牌人：显示等待打分
     showSection('waitRatingSection');
   }
 });
@@ -117,21 +116,37 @@ socket.on('card_value', (data) => {
 
 // 结果揭晓
 socket.on('round_result', (data) => {
-  const diff = Math.abs(data.cardValue - data.rating);
   document.getElementById('resultCard').textContent = data.cardValue;
-  document.getElementById('resultRating').textContent = data.rating;
-  document.getElementById('resultDiff').textContent = diff;
-  const scoreEl = document.getElementById('resultScore');
-  scoreEl.textContent = data.score > 0 ? `+${data.score}` : `+0`;
-  scoreEl.className = 'result-score' + (data.score === 0 ? ' zero' : '');
   document.getElementById('resultDrawer').textContent = `由 ${data.drawerName} 抽牌`;
 
-  // 更新记分板
-  renderScoreboard(data.players);
+  // 渲染每个人的评分详情
+  const detailsEl = document.getElementById('resultDetails');
+  detailsEl.innerHTML = data.results.map(r => {
+    const player = data.players.find(p => p.id === r.playerId);
+    const name = player ? player.name : '未知';
+    const isWinner = data.winners.includes(r.playerId);
+    return `
+      <div class="result-detail-row ${isWinner ? 'is-winner' : ''}">
+        <span class="rd-name">${name}</span>
+        <span class="rd-rating">${r.rating}分</span>
+        <span class="rd-diff">差${r.diff}</span>
+        ${isWinner ? '<span class="rd-winner-badge">🏆 +10</span>' : ''}
+      </div>
+    `;
+  }).join('');
 
+  // 显示赢家
+  const winnerEl = document.getElementById('winnerAnnounce');
+  if (data.winnerNames && data.winnerNames.length > 0) {
+    winnerEl.style.display = 'block';
+    winnerEl.textContent = `🎉 ${data.winnerNames.join('、')} 最接近！+10分！`;
+  } else {
+    winnerEl.style.display = 'none';
+  }
+
+  renderScoreboard(data.players);
   showSection('resultSection');
 
-  // 房主显示下一轮按钮
   const isHost = data.players.find(p => p.id === myPlayerId)?.isHost;
   document.getElementById('btnNextRound').style.display = isHost ? 'block' : 'none';
   document.getElementById('waitHostNext').style.display = isHost ? 'none' : 'block';
@@ -143,6 +158,15 @@ socket.on('game_over', (data) => {
   renderFinalScores(data.players);
   const isHost = data.players.find(p => p.id === myPlayerId)?.isHost;
   document.getElementById('btnRestart').style.display = isHost ? 'block' : 'none';
+});
+
+// ===== next_turn =====
+socket.on('next_turn', (data) => {
+  window._currentDrawerId = data.currentDrawer;
+  renderScoreboard(data.players);
+  document.getElementById('roundInfo').textContent = `第 ${data.round}/10 轮`;
+  resetGameArea();
+  setupDrawPhase(data.currentDrawer, data.players);
 });
 
 // ===== 大厅渲染 =====
@@ -165,18 +189,17 @@ function renderPlayerList(players) {
     `;
   }).join('');
 
-  // 开始按钮状态
   const btn = document.getElementById('btnStartGame');
   const named = players.filter(p => p.name.trim());
-  if (players.length >= 2 && named.length === players.length) {
+  if (players.length >= 3 && named.length === players.length) {
     btn.disabled = false;
     btn.textContent = players.find(p => p.isHost)?.id === myPlayerId
       ? '🎮 开始游戏！'
       : '👈 等待房主开始游戏...';
   } else {
     btn.disabled = true;
-    if (players.length < 2) {
-      btn.textContent = `👈 至少需要2名玩家（当前${players.length}人）`;
+    if (players.length < 3) {
+      btn.textContent = `👈 至少需要3名玩家（当前${players.length}人）`;
     } else {
       btn.textContent = '✏️ 请所有玩家设置名字';
     }
@@ -198,8 +221,8 @@ function resetGameArea() {
     document.getElementById(id).style.display = 'none';
   });
   document.getElementById('drawerIndicator').style.display = 'none';
-  document.getElementById('ratingSlider').value = 5;
-  document.getElementById('sliderDisplay').textContent = '5';
+  _multiRatings = {};
+  _describers = [];
 }
 
 function showSection(sectionId) {
@@ -218,30 +241,55 @@ function setupDrawPhase(drawerId, players) {
   isDrawer = (drawerId === myPlayerId);
 
   if (isDrawer) {
-    // 我是抽牌人 → 显示抽牌按钮
     showSection('drawSection');
   } else {
-    // 我是观众 → 等待别人抽牌，准备好显示牌面
     document.getElementById('viewerCardValue').textContent = '?';
     showSection('viewerSection');
-    // 抽牌还没发生，先隐藏viewerSection... 改用waitDrawSection
     showSection('waitDrawSection');
     document.getElementById('waitDrawText').textContent = `等待 ${drawerName} 抽牌...`;
   }
 }
 
 function drawCard() {
-  // 播放震动反馈
   socket.emit('draw_card');
 }
 
-function updateSlider(val) {
-  document.getElementById('sliderDisplay').textContent = val;
+// ===== 多人评分UI =====
+function buildMultiRatingUI(players) {
+  // 排除自己（抽牌人）
+  _describers = players.filter(p => p.id !== myPlayerId);
+  _multiRatings = {};
+  
+  const listEl = document.getElementById('multiRatingList');
+  listEl.innerHTML = _describers.map((p, i) => {
+    _multiRatings[p.id] = 5; // 默认5分
+    return `
+      <div class="rater-item">
+        <div class="rater-name">${p.name}</div>
+        <div class="rater-slider-row">
+          <span style="font-size:12px;color:#a0aec0;">0</span>
+          <input type="range" min="0" max="10" value="5" step="1"
+                 data-playerid="${p.id}"
+                 oninput="updateMultiRating('${p.id}', this.value)">
+          <span class="rater-value" id="mrating-${p.id}">5</span>
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
-function submitRating() {
-  const val = parseInt(document.getElementById('ratingSlider').value);
-  socket.emit('submit_rating', { rating: val });
+function updateMultiRating(playerId, val) {
+  _multiRatings[playerId] = parseInt(val);
+  const display = document.getElementById(`mrating-${playerId}`);
+  if (display) display.textContent = val;
+}
+
+function submitMultiRatings() {
+  const ratings = _describers.map(p => ({
+    playerId: p.id,
+    rating: _multiRatings[p.id] || 5,
+  }));
+  socket.emit('submit_ratings', { ratings });
 }
 
 function nextRound() {
@@ -258,7 +306,6 @@ function renderScoreboard(players) {
   const el = document.getElementById('scoreList');
   el.innerHTML = sorted.map((p, i) => {
     const isMe = p.id === myPlayerId;
-    const isCurrent = p.id === (window._currentDrawerId);
     return `
       <div class="score-row ${isMe ? 'current' : ''}">
         <span class="rank">${i + 1}</span>
@@ -295,15 +342,6 @@ function renderFinalScores(players) {
     `;
   }
 }
-
-// ===== next_turn（每轮切换时触发，含第一轮） =====
-socket.on('next_turn', (data) => {
-  window._currentDrawerId = data.currentDrawer;
-  renderScoreboard(data.players);
-  document.getElementById('roundInfo').textContent = `第 ${data.round}/10 轮`;
-  resetGameArea();
-  setupDrawPhase(data.currentDrawer, data.players);
-});
 
 // ===== 键盘支持 =====
 document.addEventListener('keydown', (e) => {
