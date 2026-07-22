@@ -6,7 +6,15 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-app.use(express.static('public'));
+app.use(express.static('public', {
+  maxAge: 0,
+  etag: false,
+  setHeaders: (res, path) => {
+    if (path.endsWith('.html') || path.endsWith('.js') || path.endsWith('.css')) {
+      res.set('Cache-Control', 'no-store');
+    }
+  },
+}));
 
 // ===== 房间状态存储 =====
 const rooms = {};
