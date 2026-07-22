@@ -145,7 +145,7 @@ io.on('connection', (socket) => {
     room.ratings = [];
 
     // 通知所有人：有人抽牌了（不包含牌值）
-    io.to(socket.roomCode).emit('card_drawn', { drawerId: socket.id });
+    io.to(socket.roomCode).emit('card_drawn', { drawerId: socket.id, players: room.players });
 
     // 单独发给每个非抽牌玩家：牌值
     room.players.forEach(p => {
