@@ -105,7 +105,8 @@ socket.on('card_drawn', (data) => {
     buildMultiRatingUI(data.players);
     showSection('describeSection');
   } else {
-    showSection('waitRatingSection');
+    // 非抽牌人：显示牌面，大家编事件描述
+    showSection('viewerSection');
   }
 });
 
