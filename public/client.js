@@ -131,16 +131,21 @@ socket.on('round_result', (data) => {
         <span class="rd-name">${name}</span>
         <span class="rd-rating">${r.rating}分</span>
         <span class="rd-diff">差${r.diff}</span>
-        ${isWinner ? '<span class="rd-winner-badge">🏆 +10</span>' : ''}
+        ${isWinner ? `<span class="rd-winner-badge">🏆 +${r.score}</span>` : ''}
       </div>
     `;
   }).join('');
 
-  // 显示赢家
+  // 显示得分者
   const winnerEl = document.getElementById('winnerAnnounce');
-  if (data.winnerNames && data.winnerNames.length > 0) {
+  const scored = data.results.filter(r => r.score > 0);
+  if (scored.length > 0) {
     winnerEl.style.display = 'block';
-    winnerEl.textContent = `🎉 ${data.winnerNames.join('、')} 最接近！+10分！`;
+    const text = scored.map(r => {
+      const p = data.players.find(pl => pl.id === r.playerId);
+      return `${p ? p.name : '未知'}+${r.score}分`;
+    }).join('、');
+    winnerEl.textContent = `🎉 ${text}`;
   } else {
     winnerEl.style.display = 'none';
   }

@@ -190,32 +190,45 @@ io.on('connection', (socket) => {
 
     room.ratings = validRatings;
 
-    // 计算每个描述者的得分：10 - |牌面 - 评分|
+    // 计算差值
     const results = validRatings.map(r => {
       const diff = Math.abs(room.cardValue - r.rating);
       return {
         playerId: r.playerId,
         rating: r.rating,
         diff,
-        score: 10 - diff,
+        score: 0, // 稍后计算实际得分
       };
     });
 
-    // 找出最接近的（最小差值）
-    const minDiff = Math.min(...results.map(r => r.diff));
-    const winners = results.filter(r => r.diff === minDiff);
+    // 按差值从小到大排序，给分：第1名+5、第2名+3、第3名+1
+    const sorted = [...results].sort((a, b) => a.diff - b.diff);
+    const pointsMap = [5, 3, 1];
+    let rank = 0;
+    let lastDiff = -1;
 
-    // 赢家加分
-    const winnerNames = [];
-    winners.forEach(w => {
-      const p = room.players.find(pl => pl.id === w.playerId);
+    const scoredPlayers = [];
+    sorted.forEach(r => {
+      if (r.diff !== lastDiff) {
+        rank++;
+        lastDiff = r.diff;
+      }
+      const points = rank <= 3 ? pointsMap[rank - 1] : 0;
+      r.score = points;
+
+      const p = room.players.find(pl => pl.id === r.playerId);
       if (p) {
-        p.score += 10;  // 赢家加10分
-        winnerNames.push(p.name);
+        p.score += points;
+        if (points > 0) scoredPlayers.push({ name: p.name, points });
       }
     });
 
     room.state = 'round_end';
+
+    // 生成得分摘要用于log和展示
+    const scoredSummary = scoredPlayers.map(s => `${s.name}+${s.points}`).join(', ');
+    const winnerIds = results.filter(r => r.score > 0).map(r => r.playerId);
+    const winnerNames = scoredPlayers.map(s => s.name);
 
     // 揭晓
     io.to(socket.roomCode).emit('round_result', {
@@ -223,11 +236,11 @@ io.on('connection', (socket) => {
       drawerName: room.players.find(p => p.id === socket.id)?.name || '未知',
       cardValue: room.cardValue,
       results,
-      winners: winners.map(w => w.playerId),
+      winners: winnerIds,
       winnerNames,
       players: room.players,
     });
-    console.log(`[结果] ${room.code} 牌=${room.cardValue} 赢家=${winnerNames.join(',')}`);
+    console.log(`[结果] ${room.code} 牌=${room.cardValue} 得分: ${scoredSummary || '无人得分'}`);
   });
 
   // ------ 下一回合 ------
