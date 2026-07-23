@@ -199,8 +199,8 @@ function renderPlayerList(players) {
       : '👈 等待房主开始游戏...';
   } else {
     btn.disabled = true;
-    if (players.length < 3) {
-      btn.textContent = `👈 至少需要3名玩家（当前${players.length}人）`;
+    if (players.length < 2) {
+      btn.textContent = `👈 至少需要2名玩家（当前${players.length}人）`;
     } else {
       btn.textContent = '✏️ 请所有玩家设置名字';
     }

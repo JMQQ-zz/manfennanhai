@@ -123,8 +123,8 @@ io.on('connection', (socket) => {
     if (unnamed.length > 0) {
       return socket.emit('error_msg', { message: '请所有玩家先设置名字' });
     }
-    if (room.players.length < 3) {
-      return socket.emit('error_msg', { message: '至少需要3名玩家' });
+    if (room.players.length < 2) {
+      return socket.emit('error_msg', { message: '至少需要2名玩家' });
     }
 
     room.state = 'playing';
